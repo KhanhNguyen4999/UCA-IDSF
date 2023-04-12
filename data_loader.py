@@ -279,6 +279,7 @@ class JointDataset(torch.utils.data.Dataset):
         self.mask_padding_with_zero=True 
         self.intent_label_lst = get_intent_labels(args)
         processor = processors[args.token_level](args)
+        self.sequence_a_segment_id = 0
 
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
@@ -304,9 +305,9 @@ class JointDataset(torch.utils.data.Dataset):
                 raise Exception("For mode, Only train, dev, test is available")
 
             # Use cross entropy ignore index as padding label id so that only real label ids contribute to the loss later
-            pad_token_label_id = args.ignore_index
+            self.pad_token_label_id = args.ignore_index
             features = convert_examples_to_features(
-                examples, args.max_seq_len, tokenizer, pad_token_label_id=pad_token_label_id
+                examples, args.max_seq_len, tokenizer, pad_token_label_id=self.pad_token_label_id
             )
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save(features, cached_features_file)
@@ -368,10 +369,10 @@ class JointDataset(torch.utils.data.Dataset):
 
             # Zero-pad up to the sequence length.
             padding_length = self.args.max_seq_len - len(input_ids)
-            input_ids = input_ids + ([self.args.pad_token_id] * padding_length)
+            input_ids = input_ids + ([self.tokenizer.pad_token_id] * padding_length)
             attention_mask = attention_mask + ([0 if self.mask_padding_with_zero else 1] * padding_length)
-            token_type_ids = token_type_ids + ([self.args.pad_token_segment_id] * padding_length)
-            slot_labels_ids = slot_labels_ids + ([self.args.pad_token_label_id] * padding_length)
+            token_type_ids = token_type_ids + ([self.pad_token_segment_id] * padding_length)
+            slot_labels_ids = slot_labels_ids + ([self.pad_token_label_id] * padding_length)
 
 
         assert len(input_ids) == self.args.max_seq_len, "Error with input length {} vs {}".format(len(input_ids), self.args.max_seq_len)

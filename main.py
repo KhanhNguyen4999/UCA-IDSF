@@ -1,6 +1,6 @@
 import argparse
 
-from data_loader import load_and_cache_examples
+from data_loader import JointDataset
 from trainer import Trainer
 from utils import MODEL_CLASSES, MODEL_PATH_MAP, init_logger, load_tokenizer, set_seed
 
@@ -10,9 +10,9 @@ def main(args):
     set_seed(args)
     tokenizer = load_tokenizer(args)
 
-    train_dataset = load_and_cache_examples(args, tokenizer, mode="train")
-    dev_dataset = load_and_cache_examples(args, tokenizer, mode="dev")
-    test_dataset = load_and_cache_examples(args, tokenizer, mode="test")
+    train_dataset = JointDataset(args, tokenizer, mode="train")
+    dev_dataset = JointDataset(args, tokenizer, mode="dev")
+    test_dataset = JointDataset(args, tokenizer, mode="test")
 
     trainer = Trainer(args, train_dataset, dev_dataset, test_dataset)
 

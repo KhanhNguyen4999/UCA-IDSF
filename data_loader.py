@@ -3,6 +3,7 @@ import json
 import logging
 import os
 
+import numpy as np
 import torch
 from torch.utils.data import TensorDataset
 from utils import get_intent_labels, get_slot_labels
@@ -179,23 +180,23 @@ def convert_examples_to_features(
         # tokens are attended to.
         attention_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
 
-        # Zero-pad up to the sequence length.
-        padding_length = max_seq_len - len(input_ids)
-        input_ids = input_ids + ([pad_token_id] * padding_length)
-        attention_mask = attention_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
-        token_type_ids = token_type_ids + ([pad_token_segment_id] * padding_length)
-        slot_labels_ids = slot_labels_ids + ([pad_token_label_id] * padding_length)
+        # # Zero-pad up to the sequence length.
+        # padding_length = max_seq_len - len(input_ids)
+        # input_ids = input_ids + ([pad_token_id] * padding_length)
+        # attention_mask = attention_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
+        # token_type_ids = token_type_ids + ([pad_token_segment_id] * padding_length)
+        # slot_labels_ids = slot_labels_ids + ([pad_token_label_id] * padding_length)
 
-        assert len(input_ids) == max_seq_len, "Error with input length {} vs {}".format(len(input_ids), max_seq_len)
-        assert len(attention_mask) == max_seq_len, "Error with attention mask length {} vs {}".format(
-            len(attention_mask), max_seq_len
-        )
-        assert len(token_type_ids) == max_seq_len, "Error with token type length {} vs {}".format(
-            len(token_type_ids), max_seq_len
-        )
-        assert len(slot_labels_ids) == max_seq_len, "Error with slot labels length {} vs {}".format(
-            len(slot_labels_ids), max_seq_len
-        )
+        # assert len(input_ids) == max_seq_len, "Error with input length {} vs {}".format(len(input_ids), max_seq_len)
+        # assert len(attention_mask) == max_seq_len, "Error with attention mask length {} vs {}".format(
+        #     len(attention_mask), max_seq_len
+        # )
+        # assert len(token_type_ids) == max_seq_len, "Error with token type length {} vs {}".format(
+        #     len(token_type_ids), max_seq_len
+        # )
+        # assert len(slot_labels_ids) == max_seq_len, "Error with slot labels length {} vs {}".format(
+        #     len(slot_labels_ids), max_seq_len
+        # )
 
         intent_label_id = int(example.intent_label)
 
@@ -267,3 +268,127 @@ def load_and_cache_examples(args, tokenizer, mode):
         all_input_ids, all_attention_mask, all_token_type_ids, all_intent_label_ids, all_slot_labels_ids
     )
     return dataset
+
+
+
+class JointDataset(torch.utils.data.Dataset):
+    def __init__(self, args, tokenizer, mode):
+        self.args = args
+        self.tokenizer = tokenizer
+        self.mode = mode 
+        self.mask_padding_with_zero=True 
+        self.intent_label_lst = get_intent_labels(args)
+        processor = processors[args.token_level](args)
+
+        # Load data features from cache or dataset file
+        cached_features_file = os.path.join(
+            args.data_dir,
+            "cached_{}_{}_{}_{}".format(
+                mode, args.token_level, list(filter(None, args.model_name_or_path.split("/"))).pop(), args.max_seq_len
+            ),
+        )
+
+        if os.path.exists(cached_features_file):
+            logger.info("Loading features from cached file %s", cached_features_file)
+            features = torch.load(cached_features_file)
+        else:
+            # Load data features from dataset file
+            logger.info("Creating features from dataset file at %s", args.data_dir)
+            if mode == "train":
+                examples = processor.get_examples("train")
+            elif mode == "dev":
+                examples = processor.get_examples("dev")
+            elif mode == "test":
+                examples = processor.get_examples("test")
+            else:
+                raise Exception("For mode, Only train, dev, test is available")
+
+            # Use cross entropy ignore index as padding label id so that only real label ids contribute to the loss later
+            pad_token_label_id = args.ignore_index
+            features = convert_examples_to_features(
+                examples, args.max_seq_len, tokenizer, pad_token_label_id=pad_token_label_id
+            )
+            logger.info("Saving features into cached file %s", cached_features_file)
+            torch.save(features, cached_features_file)
+
+        # Convert to Tensors and build dataset
+        self.all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+        self.all_attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
+        self.all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+        self.all_intent_label_ids = torch.tensor([f.intent_label_id for f in features], dtype=torch.long)
+        self.all_slot_labels_ids = torch.tensor([f.slot_labels_ids for f in features], dtype=torch.long)
+
+    def __len__(self):
+        return len(self.all_input_ids)
+
+    def __getitem__(self, idx):
+
+        augment_sample = np.random.rand()
+        if augment_sample > 0.7:
+            # sample 1
+            input_ids_1 = self.all_input_ids[idx] 
+            attention_mask_1 = self.all_attention_mask[idx]
+            token_type_ids_1 = self.all_token_type_ids[idx]
+            intent_label_id_1 = self.all_intent_label_ids[idx]
+            slot_labels_ids_1 = self.all_slot_labels_ids[idx]
+            # sample 2
+            if idx == self.__len__()-1:
+                idx = idx - 1
+            input_ids_2 = self.all_input_ids[idx]
+            attention_mask_2 = self.all_attention_mask[idx]
+            token_type_ids_2 = self.all_token_type_ids[idx]
+            intent_label_id_2 = self.all_intent_label_ids[idx]
+            slot_labels_ids_2 = self.all_slot_labels_ids[idx]
+            # sample mixer
+            input_ids = torch.cat((input_ids_1, input_ids_2[1:]))
+            attention_mask = torch.cat((attention_mask_1, attention_mask_2[1:]))
+            token_type_ids = torch.cat((token_type_ids_1, token_type_ids_2[1:]))
+            slot_labels_ids = torch.cat((slot_labels_ids_1, slot_labels_ids_2[1:]))
+            
+            if self.num_intent_labels > 1:
+                # tensor(2,)
+                intent_label_id = torch.tensor([intent_label_id_1, intent_label_id_2])
+                # tensor(2,d)
+                intent_label_onehot = torch.nn.functional.one_hot(intent_label_id, 
+                                                                self.intent_label_lst)
+                # tensor(d)
+                intent_label_onehot = torch.mean(intent_label_onehot, 0)
+            else:
+                intent_label_onehot = (intent_label_id_1 + intent_label_id_2) / 2
+            
+        else:
+            input_ids = self.all_input_ids[idx], 
+            attention_mask = self.all_attention_mask[idx]
+            token_type_ids = self.all_token_type_ids[idx]
+            slot_labels_ids = self.all_slot_labels_ids[idx]
+            intent_label_onehot = self.all_intent_label_ids[idx]
+            if self.num_intent_labels > 1:
+                intent_label_onehot = torch.nn.functional.one_hot(intent_label_onehot, 
+                                                                self.intent_label_lst)
+
+            # Zero-pad up to the sequence length.
+            padding_length = self.args.max_seq_len - len(input_ids)
+            input_ids = input_ids + ([self.args.pad_token_id] * padding_length)
+            attention_mask = attention_mask + ([0 if self.mask_padding_with_zero else 1] * padding_length)
+            token_type_ids = token_type_ids + ([self.args.pad_token_segment_id] * padding_length)
+            slot_labels_ids = slot_labels_ids + ([self.args.pad_token_label_id] * padding_length)
+
+
+        assert len(input_ids) == self.args.max_seq_len, "Error with input length {} vs {}".format(len(input_ids), self.args.max_seq_len)
+        assert len(attention_mask) == self.args.max_seq_len, "Error with attention mask length {} vs {}".format(
+            len(attention_mask), self.args.max_seq_len
+        )
+        assert len(token_type_ids) == self.args.max_seq_len, "Error with token type length {} vs {}".format(
+            len(token_type_ids), self.args.max_seq_len
+        )
+        assert len(slot_labels_ids) == self.args.max_seq_len, "Error with slot labels length {} vs {}".format(
+            len(slot_labels_ids), self.args.max_seq_len
+        )
+
+        return (
+                input_ids, 
+                attention_mask,
+                token_type_ids,
+                intent_label_onehot, # shape (d) or (1)
+                slot_labels_ids
+            )

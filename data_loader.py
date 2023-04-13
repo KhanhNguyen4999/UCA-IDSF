@@ -326,46 +326,54 @@ class JointDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
 
         augment_sample = np.random.rand()
-        if augment_sample > 0.2:
-            # sample 1
-            print("-------------------- case 1")
-            input_ids_1 = self.all_input_ids[idx] 
-            attention_mask_1 = self.all_attention_mask[idx]
-            token_type_ids_1 = self.all_token_type_ids[idx]
-            intent_label_id_1 = self.all_intent_label_ids[idx]
-            slot_labels_ids_1 = self.all_slot_labels_ids[idx]
-            # sample 2
-            if idx == self.__len__()-1:
-                idx = idx - 1
-            input_ids_2 = self.all_input_ids[idx]
-            attention_mask_2 = self.all_attention_mask[idx]
-            token_type_ids_2 = self.all_token_type_ids[idx]
-            intent_label_id_2 = self.all_intent_label_ids[idx]
-            slot_labels_ids_2 = self.all_slot_labels_ids[idx]
-            # sample mixer
-            input_ids = np.concatenate((input_ids_1[:-1], input_ids_2[1:]))
-            attention_mask = np.concatenate((attention_mask_1[:-1], attention_mask_2[1:]))
-            token_type_ids = np.concatenate((token_type_ids_1[:-1], token_type_ids_2[1:]))
-            slot_labels_ids = np.concatenate((slot_labels_ids_1[:-1], slot_labels_ids_2[1:]))
-            
-            if self.num_intent_labels > 1:
-                targets = np.array([[intent_label_id_1,intent_label_id_2]]).reshape(-1)
-                one_hot_targets = np.eye(self.num_intent_labels)[targets]
-                intent_label_ids = np.mean(one_hot_targets, 0)
+        if self.mode == "train":
+            if augment_sample > 0.2:
+                # sample 1
+                print("-------------------- case 1")
+                input_ids_1 = self.all_input_ids[idx] 
+                attention_mask_1 = self.all_attention_mask[idx]
+                token_type_ids_1 = self.all_token_type_ids[idx]
+                intent_label_id_1 = self.all_intent_label_ids[idx]
+                slot_labels_ids_1 = self.all_slot_labels_ids[idx]
+                # sample 2
+                if idx == self.__len__()-1:
+                    idx = idx - 1
+                input_ids_2 = self.all_input_ids[idx]
+                attention_mask_2 = self.all_attention_mask[idx]
+                token_type_ids_2 = self.all_token_type_ids[idx]
+                intent_label_id_2 = self.all_intent_label_ids[idx]
+                slot_labels_ids_2 = self.all_slot_labels_ids[idx]
+                # sample mixer
+                input_ids = np.concatenate((input_ids_1[:-1], input_ids_2[1:]))
+                attention_mask = np.concatenate((attention_mask_1[:-1], attention_mask_2[1:]))
+                token_type_ids = np.concatenate((token_type_ids_1[:-1], token_type_ids_2[1:]))
+                slot_labels_ids = np.concatenate((slot_labels_ids_1[:-1], slot_labels_ids_2[1:]))
+                
+                if self.num_intent_labels > 1:
+                    targets = np.array([[intent_label_id_1,intent_label_id_2]]).reshape(-1)
+                    one_hot_targets = np.eye(self.num_intent_labels)[targets]
+                    intent_label_ids = np.mean(one_hot_targets, 0)
+                else:
+                    intent_label_ids = (intent_label_id_1 + intent_label_id_2) / 2
+                
             else:
-                intent_label_ids = (intent_label_id_1 + intent_label_id_2) / 2
-            
+                print("case 2")
+                input_ids = self.all_input_ids[idx]
+                attention_mask = self.all_attention_mask[idx]
+                token_type_ids = self.all_token_type_ids[idx]
+                slot_labels_ids = self.all_slot_labels_ids[idx]
+                if self.num_intent_labels > 1:
+                    intent_label_ids = np.zeros(self.num_intent_labels)
+                    intent_label_ids[self.all_intent_label_ids[idx]] = 1
+                else:
+                    intent_label_ids = self.all_intent_label_ids[idx]
         else:
-            print("case 2")
             input_ids = self.all_input_ids[idx]
             attention_mask = self.all_attention_mask[idx]
             token_type_ids = self.all_token_type_ids[idx]
             slot_labels_ids = self.all_slot_labels_ids[idx]
-            if self.num_intent_labels > 1:
-                intent_label_ids = np.zeros(self.num_intent_labels)
-                intent_label_ids[self.all_intent_label_ids[idx]] = 1
-            else:
-                intent_label_ids = self.all_intent_label_ids[idx]
+            intent_label_ids = self.all_intent_label_ids[idx]
+        
         # -> only check for augmentation data
 
         if len(input_ids) > self.args.max_seq_len:
@@ -394,9 +402,9 @@ class JointDataset(torch.utils.data.Dataset):
             len(slot_labels_ids), self.args.max_seq_len
         )
 
-        return  torch.tensor(input_ids, dtype=torch.long), \
-                torch.tensor(attention_mask, dtype=torch.long), \
-                torch.tensor(token_type_ids, dtype=torch.long), \
-                torch.tensor(intent_label_ids, dtype=torch.long), \
-                torch.tensor(slot_labels_ids, dtype=torch.long)
+        return  torch.tensor(input_ids), \
+                torch.tensor(attention_mask), \
+                torch.tensor(token_type_ids), \
+                torch.tensor(intent_label_ids), \
+                torch.tensor(slot_labels_ids)
 

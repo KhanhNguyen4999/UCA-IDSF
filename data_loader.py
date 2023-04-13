@@ -277,9 +277,11 @@ class JointDataset(torch.utils.data.Dataset):
         self.tokenizer = tokenizer
         self.mode = mode 
         self.mask_padding_with_zero=True 
-        self.intent_label_lst = get_intent_labels(args)
+        self.num_intent_labels = len(get_intent_labels(args))
         processor = processors[args.token_level](args)
         self.sequence_a_segment_id = 0
+        self.pad_token_segment_id = 0
+        self.pad_token_label_id = args.ignore_index
 
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
@@ -305,7 +307,6 @@ class JointDataset(torch.utils.data.Dataset):
                 raise Exception("For mode, Only train, dev, test is available")
 
             # Use cross entropy ignore index as padding label id so that only real label ids contribute to the loss later
-            self.pad_token_label_id = args.ignore_index
             features = convert_examples_to_features(
                 examples, args.max_seq_len, tokenizer, pad_token_label_id=self.pad_token_label_id
             )
@@ -313,11 +314,11 @@ class JointDataset(torch.utils.data.Dataset):
             torch.save(features, cached_features_file)
 
         # Convert to Tensors and build dataset
-        self.all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-        self.all_attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
-        self.all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
-        self.all_intent_label_ids = torch.tensor([f.intent_label_id for f in features], dtype=torch.long)
-        self.all_slot_labels_ids = torch.tensor([f.slot_labels_ids for f in features], dtype=torch.long)
+        self.all_input_ids = [np.array(f.input_ids) for f in features]
+        self.all_attention_mask = [np.array(f.attention_mask) for f in features]
+        self.all_token_type_ids = [np.array(f.token_type_ids) for f in features]
+        self.all_intent_label_ids = [np.array(f.intent_label_id) for f in features]
+        self.all_slot_labels_ids = [np.array(f.slot_labels_ids) for f in features]
 
     def __len__(self):
         return len(self.all_input_ids)
@@ -325,8 +326,9 @@ class JointDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
 
         augment_sample = np.random.rand()
-        if augment_sample > 0.7:
+        if augment_sample > 0.2:
             # sample 1
+            print("-------------------- case 1")
             input_ids_1 = self.all_input_ids[idx] 
             attention_mask_1 = self.all_attention_mask[idx]
             token_type_ids_1 = self.all_token_type_ids[idx]
@@ -341,38 +343,44 @@ class JointDataset(torch.utils.data.Dataset):
             intent_label_id_2 = self.all_intent_label_ids[idx]
             slot_labels_ids_2 = self.all_slot_labels_ids[idx]
             # sample mixer
-            input_ids = torch.cat((input_ids_1, input_ids_2[1:]))
-            attention_mask = torch.cat((attention_mask_1, attention_mask_2[1:]))
-            token_type_ids = torch.cat((token_type_ids_1, token_type_ids_2[1:]))
-            slot_labels_ids = torch.cat((slot_labels_ids_1, slot_labels_ids_2[1:]))
+            input_ids = np.concatenate((input_ids_1[:-1], input_ids_2[1:]))
+            attention_mask = np.concatenate((attention_mask_1[:-1], attention_mask_2[1:]))
+            token_type_ids = np.concatenate((token_type_ids_1[:-1], token_type_ids_2[1:]))
+            slot_labels_ids = np.concatenate((slot_labels_ids_1[:-1], slot_labels_ids_2[1:]))
             
             if self.num_intent_labels > 1:
-                # tensor(2,)
-                intent_label_id = torch.tensor([intent_label_id_1, intent_label_id_2])
-                # tensor(2,d)
-                intent_label_onehot = torch.nn.functional.one_hot(intent_label_id, 
-                                                                self.intent_label_lst)
-                # tensor(d)
-                intent_label_onehot = torch.mean(intent_label_onehot, 0)
+                targets = np.array([[intent_label_id_1,intent_label_id_2]]).reshape(-1)
+                one_hot_targets = np.eye(self.num_intent_labels)[targets]
+                intent_label_ids = np.mean(one_hot_targets, 0)
             else:
-                intent_label_onehot = (intent_label_id_1 + intent_label_id_2) / 2
+                intent_label_ids = (intent_label_id_1 + intent_label_id_2) / 2
             
         else:
-            input_ids = self.all_input_ids[idx], 
+            print("case 2")
+            input_ids = self.all_input_ids[idx]
             attention_mask = self.all_attention_mask[idx]
             token_type_ids = self.all_token_type_ids[idx]
             slot_labels_ids = self.all_slot_labels_ids[idx]
-            intent_label_onehot = self.all_intent_label_ids[idx]
             if self.num_intent_labels > 1:
-                intent_label_onehot = torch.nn.functional.one_hot(intent_label_onehot, 
-                                                                self.intent_label_lst)
+                intent_label_ids = np.zeros(self.num_intent_labels)
+                intent_label_ids[self.all_intent_label_ids[idx]] = 1
+            else:
+                intent_label_ids = self.all_intent_label_ids[idx]
+        # -> only check for augmentation data
 
-            # Zero-pad up to the sequence length.
-            padding_length = self.args.max_seq_len - len(input_ids)
-            input_ids = input_ids + ([self.tokenizer.pad_token_id] * padding_length)
-            attention_mask = attention_mask + ([0 if self.mask_padding_with_zero else 1] * padding_length)
-            token_type_ids = token_type_ids + ([self.pad_token_segment_id] * padding_length)
-            slot_labels_ids = slot_labels_ids + ([self.pad_token_label_id] * padding_length)
+        if len(input_ids) > self.args.max_seq_len:
+            input_ids = input_ids[: self.args.max_seq_len]
+            attention_mask = attention_mask[: self.args.max_seq_len]
+            token_type_ids = token_type_ids[: self.args.max_seq_len]
+            slot_labels_ids = slot_labels_ids[: self.args.max_seq_len]
+
+        # Zero-pad up to the sequence length.
+        padding_length = self.args.max_seq_len - len(input_ids)
+        if padding_length > 0:
+            input_ids = np.pad(input_ids, (0, padding_length), constant_values= 0 if self.tokenizer.pad_token_id else 1)
+            attention_mask = np.pad(attention_mask, (0, padding_length), constant_values= 0 if self.mask_padding_with_zero else 1)  
+            token_type_ids = np.pad(token_type_ids,  (0, padding_length), constant_values = self.pad_token_segment_id)
+            slot_labels_ids = np.pad(slot_labels_ids, (0, padding_length), constant_values = self.pad_token_label_id)
 
 
         assert len(input_ids) == self.args.max_seq_len, "Error with input length {} vs {}".format(len(input_ids), self.args.max_seq_len)
@@ -386,10 +394,9 @@ class JointDataset(torch.utils.data.Dataset):
             len(slot_labels_ids), self.args.max_seq_len
         )
 
-        return (
-                input_ids, 
-                attention_mask,
-                token_type_ids,
-                intent_label_onehot, # shape (d) or (1)
-                slot_labels_ids
-            )
+        return  torch.tensor(input_ids, dtype=torch.long), \
+                torch.tensor(attention_mask, dtype=torch.long), \
+                torch.tensor(token_type_ids, dtype=torch.long), \
+                torch.tensor(intent_label_ids, dtype=torch.long), \
+                torch.tensor(slot_labels_ids, dtype=torch.long)
+

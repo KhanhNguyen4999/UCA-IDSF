@@ -134,11 +134,10 @@ if __name__ == "__main__":
     parser.add_argument("--use_attention_mask", action="store_true", help="Whether to use attention mask")
     parser.add_argument(
                         "--use_aug", 
-                        action="store_true",
                         default = 0.0, 
                         type = float,
                         help="Whether to use UCA augmentation with a certain rate \
-                           exp: --use_aug = 0.3 that means 30% of training data is augmented data ")
+                           exp: --use_aug = 0.3 that means 30 percent of training data is augmented data ")
 
     args = parser.parse_args()
 

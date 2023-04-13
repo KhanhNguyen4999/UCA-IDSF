@@ -284,6 +284,8 @@ class JointDataset(torch.utils.data.Dataset):
         self.pad_token_label_id = args.ignore_index
         self.aug_ratio = self.args.use_aug
 
+        print("\n\n\n\n------------ Augmentation Data With Ratio: ", self.aug_ratio)
+
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
             args.data_dir,

@@ -51,6 +51,8 @@ class Trainer(object):
         print(torch.cuda.current_device())
         self.device = "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
         self.model.to(self.device)
+        if not os.path.isdir(self.args.model_dir):
+          os.makedirs(self.args.model_dir)
         self.logger = get_logger(log_dir=self.args.model_dir, log_name="train.log")
 
     def train(self):
@@ -103,7 +105,7 @@ class Trainer(object):
 
         for _ in train_iterator:
             epoch_iterator = tqdm(train_dataloader, desc="Iteration", position=0, leave=True)
-            print("\n============== Epoch =====================", _)
+            self.logger.info("\n\n============== Epoch = %d =========== \n\n", _)
 
             for step, batch in enumerate(epoch_iterator):
                 self.model.train()

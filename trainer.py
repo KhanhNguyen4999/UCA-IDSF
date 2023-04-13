@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm, trange
 from transformers import AdamW, get_linear_schedule_with_warmup
-from utils import MODEL_CLASSES, compute_metrics, get_intent_labels, get_slot_labels
+from utils import MODEL_CLASSES, compute_metrics, get_intent_labels, get_slot_labels, get_logger
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,7 @@ class Trainer(object):
         print(torch.cuda.current_device())
         self.device = "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
         self.model.to(self.device)
+        self.logger = get_logger(log_dir=self.args.model_dir, log_name="train.log")
 
     def train(self):
         train_sampler = RandomSampler(self.train_dataset)
@@ -84,14 +85,14 @@ class Trainer(object):
         )
 
         # Train!
-        logger.info("***** Running training *****")
-        logger.info("  Num examples = %d", len(self.train_dataset))
-        logger.info("  Num Epochs = %d", self.args.num_train_epochs)
-        logger.info("  Total train batch size = %d", self.args.train_batch_size)
-        logger.info("  Gradient Accumulation steps = %d", self.args.gradient_accumulation_steps)
-        logger.info("  Total optimization steps = %d", t_total)
-        logger.info("  Logging steps = %d", self.args.logging_steps)
-        logger.info("  Save steps = %d", self.args.save_steps)
+        self.logger.info("***** Running training *****")
+        self.logger.info("  Num examples = %d", len(self.train_dataset))
+        self.logger.info("  Num Epochs = %d", self.args.num_train_epochs)
+        self.logger.info("  Total train batch size = %d", self.args.train_batch_size)
+        self.logger.info("  Gradient Accumulation steps = %d", self.args.gradient_accumulation_steps)
+        self.logger.info("  Total optimization steps = %d", t_total)
+        self.logger.info("  Logging steps = %d", self.args.logging_steps)
+        self.logger.info("  Save steps = %d", self.args.save_steps)
 
         global_step = 0
         tr_loss = 0.0
@@ -102,7 +103,7 @@ class Trainer(object):
 
         for _ in train_iterator:
             epoch_iterator = tqdm(train_dataloader, desc="Iteration", position=0, leave=True)
-            print("\nEpoch", _)
+            print("\n============== Epoch =====================", _)
 
             for step, batch in enumerate(epoch_iterator):
                 self.model.train()
@@ -182,9 +183,9 @@ class Trainer(object):
         eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=self.args.eval_batch_size)
 
         # Eval!
-        logger.info("***** Running evaluation on %s dataset *****", mode)
-        logger.info("  Num examples = %d", len(dataset))
-        logger.info("  Batch size = %d", self.args.eval_batch_size)
+        self.logger.info("***** Running evaluation on %s dataset *****", mode)
+        self.logger.info("  Num examples = %d", len(dataset))
+        self.logger.info("  Batch size = %d", self.args.eval_batch_size)
         eval_loss = 0.0
         nb_eval_steps = 0
         intent_preds = None
@@ -262,9 +263,9 @@ class Trainer(object):
         total_result = compute_metrics(intent_preds, out_intent_label_ids, slot_preds_list, out_slot_label_list)
         results.update(total_result)
 
-        logger.info("***** Eval results *****")
+        self.logger.info("***** Eval results *****")
         for key in sorted(results.keys()):
-            logger.info("  %s = %s", key, str(results[key]))
+            self.logger.info("  %s = %s", key, str(results[key]))
         if mode == "test":
             self.write_evaluation_result("eval_test_results.txt", results)
         elif mode == "dev":
@@ -280,7 +281,7 @@ class Trainer(object):
 
         # Save training arguments together with the trained model
         torch.save(self.args, os.path.join(self.args.model_dir, "training_args.bin"))
-        logger.info("Saving model checkpoint to %s", self.args.model_dir)
+        self.logger.info("Saving model checkpoint to %s", self.args.model_dir)
 
     def load_model(self):
         # Check whether model exists
@@ -295,6 +296,6 @@ class Trainer(object):
                 slot_label_lst=self.slot_label_lst,
             )
             self.model.to(self.device)
-            logger.info("***** Model Loaded *****")
+            self.logger.info("***** Model Loaded *****")
         except Exception:
             raise Exception("Some model files might be missing...")

@@ -282,6 +282,7 @@ class JointDataset(torch.utils.data.Dataset):
         self.sequence_a_segment_id = 0
         self.pad_token_segment_id = 0
         self.pad_token_label_id = args.ignore_index
+        self.aug_ratio = self.args.use_aug
 
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
@@ -327,9 +328,8 @@ class JointDataset(torch.utils.data.Dataset):
 
         augment_sample = np.random.rand()
         if self.mode == "train":
-            if augment_sample > 0.2:
+            if augment_sample < self.aug_ratio:
                 # sample 1
-                print("-------------------- case 1")
                 input_ids_1 = self.all_input_ids[idx] 
                 attention_mask_1 = self.all_attention_mask[idx]
                 token_type_ids_1 = self.all_token_type_ids[idx]
@@ -357,7 +357,6 @@ class JointDataset(torch.utils.data.Dataset):
                     intent_label_ids = (intent_label_id_1 + intent_label_id_2) / 2
                 
             else:
-                print("case 2")
                 input_ids = self.all_input_ids[idx]
                 attention_mask = self.all_attention_mask[idx]
                 token_type_ids = self.all_token_type_ids[idx]

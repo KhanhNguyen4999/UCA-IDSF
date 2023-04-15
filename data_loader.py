@@ -340,16 +340,19 @@ class JointDataset(torch.utils.data.Dataset):
                 # sample 2
                 if idx == self.__len__()-1:
                     idx = idx - 1
+                else:
+                    idx = idx + 1
+
                 input_ids_2 = self.all_input_ids[idx]
                 attention_mask_2 = self.all_attention_mask[idx]
                 token_type_ids_2 = self.all_token_type_ids[idx]
                 intent_label_id_2 = self.all_intent_label_ids[idx]
                 slot_labels_ids_2 = self.all_slot_labels_ids[idx]
                 # sample mixer
-                input_ids = np.concatenate((input_ids_1[:-1], input_ids_2[1:]))
-                attention_mask = np.concatenate((attention_mask_1[:-1], attention_mask_2[1:]))
-                token_type_ids = np.concatenate((token_type_ids_1[:-1], token_type_ids_2[1:]))
-                slot_labels_ids = np.concatenate((slot_labels_ids_1[:-1], slot_labels_ids_2[1:]))
+                input_ids = np.concatenate((input_ids_1, input_ids_2[1:]))
+                attention_mask = np.concatenate((attention_mask_1, attention_mask_2[1:]))
+                token_type_ids = np.concatenate((token_type_ids_1, token_type_ids_2[1:]))
+                slot_labels_ids = np.concatenate((slot_labels_ids_1, slot_labels_ids_2[1:]))
                 
                 if self.num_intent_labels > 1:
                     targets = np.array([[intent_label_id_1,intent_label_id_2]]).reshape(-1)

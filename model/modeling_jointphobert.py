@@ -61,7 +61,7 @@ class JointPhoBERT(RobertaPreTrainedModel):
             else:
                 intent_loss_fct = nn.CrossEntropyLoss()
                 intent_loss = intent_loss_fct(
-                    intent_logits.view(-1, self.num_intent_labels), intent_label_ids.view(-1)
+                    intent_logits.view(-1, self.num_intent_labels), intent_label_ids
                 )
             total_loss += self.args.intent_loss_coef * intent_loss
 

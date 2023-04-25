@@ -180,24 +180,6 @@ def convert_examples_to_features(
         # tokens are attended to.
         attention_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
 
-        # # Zero-pad up to the sequence length.
-        # padding_length = max_seq_len - len(input_ids)
-        # input_ids = input_ids + ([pad_token_id] * padding_length)
-        # attention_mask = attention_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
-        # token_type_ids = token_type_ids + ([pad_token_segment_id] * padding_length)
-        # slot_labels_ids = slot_labels_ids + ([pad_token_label_id] * padding_length)
-
-        # assert len(input_ids) == max_seq_len, "Error with input length {} vs {}".format(len(input_ids), max_seq_len)
-        # assert len(attention_mask) == max_seq_len, "Error with attention mask length {} vs {}".format(
-        #     len(attention_mask), max_seq_len
-        # )
-        # assert len(token_type_ids) == max_seq_len, "Error with token type length {} vs {}".format(
-        #     len(token_type_ids), max_seq_len
-        # )
-        # assert len(slot_labels_ids) == max_seq_len, "Error with slot labels length {} vs {}".format(
-        #     len(slot_labels_ids), max_seq_len
-        # )
-
         intent_label_id = int(example.intent_label)
 
         if ex_index < 5:
@@ -280,6 +262,7 @@ class JointDataset(torch.utils.data.Dataset):
         self.num_intent_labels = len(get_intent_labels(args))
         processor = processors[args.token_level](args)
         self.sequence_a_segment_id = 0
+        self.cls_token_segment_id=0,
         self.pad_token_segment_id = 0
         self.pad_token_label_id = args.ignore_index
         self.aug_ratio = self.args.use_aug
@@ -348,11 +331,36 @@ class JointDataset(torch.utils.data.Dataset):
                 token_type_ids_2 = self.all_token_type_ids[idx]
                 intent_label_id_2 = self.all_intent_label_ids[idx]
                 slot_labels_ids_2 = self.all_slot_labels_ids[idx]
+                
                 # sample mixer
-                input_ids = np.concatenate((input_ids_1, input_ids_2[1:]))
-                attention_mask = np.concatenate((attention_mask_1, attention_mask_2[1:]))
-                token_type_ids = np.concatenate((token_type_ids_1, token_type_ids_2[1:]))
-                slot_labels_ids = np.concatenate((slot_labels_ids_1, slot_labels_ids_2[1:]))
+                cls_token_id = input_ids_1[0]
+                sep_token_id = input_ids_1[-1]
+
+                input_ids = np.concatenate((input_ids_1[1:], input_ids_2[1:-1]))
+                attention_mask = np.concatenate((attention_mask_1[1:], attention_mask_2[1:-1]))
+                token_type_ids = np.concatenate((token_type_ids_1[1:], token_type_ids_2[1:-1]))
+                slot_labels_ids = np.concatenate((slot_labels_ids_1[1:], slot_labels_ids_2[1:-1]))
+
+                # -> only check for augmentation data
+                # Account for [CLS] and [SEP]
+                special_tokens_count = 2
+                if len(input_ids) > self.args.max_seq_len - special_tokens_count:
+                    input_ids = input_ids[: self.args.max_seq_len]
+                    attention_mask = attention_mask[: self.args.max_seq_len]
+                    token_type_ids = token_type_ids[: self.args.max_seq_len]
+                    slot_labels_ids = slot_labels_ids[: self.args.max_seq_len]
+                
+                 # Add [SEP] token
+                input_ids += [sep_token_id]
+                slot_labels_ids += [self.pad_token_label_id]
+                token_type_ids = [self.sequence_a_segment_id] * len(input_ids)
+
+                # Add [CLS] token
+                input_ids = [cls_token_id] + input_ids
+                slot_labels_ids = [self.pad_token_label_id] + slot_labels_ids
+                token_type_ids = [self.cls_token_segment_id] + token_type_ids
+
+                attention_mask += [1, 1]
                 
                 if self.num_intent_labels > 1:
                     targets = np.array([[intent_label_id_1,intent_label_id_2]]).reshape(-1)
@@ -377,14 +385,6 @@ class JointDataset(torch.utils.data.Dataset):
             token_type_ids = self.all_token_type_ids[idx]
             slot_labels_ids = self.all_slot_labels_ids[idx]
             intent_label_ids = self.all_intent_label_ids[idx]
-        
-        # -> only check for augmentation data
-
-        if len(input_ids) > self.args.max_seq_len:
-            input_ids = input_ids[: self.args.max_seq_len]
-            attention_mask = attention_mask[: self.args.max_seq_len]
-            token_type_ids = token_type_ids[: self.args.max_seq_len]
-            slot_labels_ids = slot_labels_ids[: self.args.max_seq_len]
 
         # Zero-pad up to the sequence length.
         padding_length = self.args.max_seq_len - len(input_ids)
